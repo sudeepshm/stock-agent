@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: datalake
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - miniodata:/data
+    ports:
+      - '9002:9000'
+      - '9003:9001'
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend:cached
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/datalake
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      REDIS_URL: redis://redis:6379
+      GEMINI_API_KEY: ""
+    ports:
+      - '8000:8000'
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  frontend:
+    image: node:20-slim
+    working_dir: /app/frontend
+    volumes:
+      - ./frontend:/app/frontend:cached
+    command: bash -c "npm install --silent && VITE_API_BASE=http://localhost:8000 npx vite --host 0.0.0.0"
+    ports:
+      - '5173:5173'
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  miniodata:
+
